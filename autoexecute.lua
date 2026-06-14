@@ -267,15 +267,11 @@ local VEHICLE_NAME = "91TERRITORY-SCOUT"
 local PROBE_TARGET = 4
 local START_POS = Vector3.new(-25904.4, 2.5, -25592.4)
 
--- ВАША ССЫЛКА НА GITHUB (исправлено - используйте ВАШУ ссылку)
 local GITHUB_RAW = "https://raw.githubusercontent.com/loperer1/Eclipse-AutoExecute/main/autoexecute.lua"
 
 local _queueFunc = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
 
-local QUEUE_CODE = string.format([[
-    getgenv().auto_enable2_farm = true
-    loadstring(game:HttpGet("%s"))()
-]], GITHUB_RAW)
+local QUEUE_CODE = 'getgenv().auto_enable2_farm = true loadstring(game:HttpGet("' .. GITHUB_RAW .. '"))()'
 
 local _hasQueued = false
 local function doQueue()
@@ -2099,12 +2095,12 @@ task.spawn(function()
             for _, t in ipairs(char:GetChildren()) do
                 if isProbe(t) then table.insert(found, t) end
             end
-            return found        end
+            return found
+        end
         local worldCount = countWorldProbes()
         local storms = getTornadoes()
         local stormForming = false
-        for _, stormData in ipairs(storms) do
-            local config = stormData.model:FindFirstChild("configs") and stormData.model.configs:FindFirstChild("tornado")
+        for _, stormData in ipairs(storms) do            local config = stormData.model:FindFirstChild("configs") and stormData.model.configs:FindFirstChild("tornado")
             local hObj = config and config:FindFirstChild("height")
             if hObj and hObj:IsA("ValueBase") then
                 local h = hObj.Value
