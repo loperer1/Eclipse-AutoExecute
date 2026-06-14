@@ -1,4 +1,3 @@
--- Eclipse Autofarm 2 | FIXED by Grok (15.06.2026)
 local getgenv = (type(getgenv) == "function" and getgenv) or function() return _G end
 
 local executionId = tick()
