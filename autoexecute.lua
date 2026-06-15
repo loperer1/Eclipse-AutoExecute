@@ -1,4 +1,5 @@
 -- Environment Compatibility & Obfuscator Protection
+print('[ECLIPSE] Script loading...')
 local getgenv = (type(getgenv) == "function" and getgenv) or function() return _G end
 local hookmetamethod = (type(hookmetamethod) == "function" and hookmetamethod) or function() return function() end end
 local getnamecallmethod = (type(getnamecallmethod) == "function" and getnamecallmethod) or function() return "" end
@@ -106,6 +107,7 @@ local function getCharHeightOffset(char)
 end
 
 -- Everything below runs fresh on every server (new GUI, new state, new loops)
+print('[ECLIPSE] Top-level code OK, starting main...')
 local function eclipse_main()
 
 -- Cleanup previous execution
@@ -3778,7 +3780,7 @@ task.spawn(function()
     while _autofarmRunning do
         if _autofarmEnabled and WEBHOOK_ENABLED and WEBHOOK_URL ~= "" then 
             task.spawn(sendWebhook) 
-        endф
+        end
         task.wait(SEND_INTERVAL)
     end
 end)
@@ -3786,5 +3788,9 @@ end)
 
 end -- close eclipse_main
 
--- Final startup call
-eclipse_main()
+-- Final startup call (with error reporting)
+local _ok, _err = pcall(eclipse_main)
+if not _ok then
+    warn('ECLIPSE ERROR: ' .. tostring(_err))
+    print('ECLIPSE ERROR: ' .. tostring(_err))
+end
