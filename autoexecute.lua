@@ -60,11 +60,25 @@ if not getgenv()._eclipse2_hooked then
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
         if method == "Kick" then
-            if self == localPlayer then return end
+            if self == localPlayer then
+                warn("[ECLIPSE] Blocked Kick call")
+                return
+            end
         elseif method == "FireServer" then
             if _hCS and self == _hCS then return end
         end
         return oldNamecall(self, ...)
+    end)
+
+    -- Fallback anti-kick: hook Player:Kick directly as a method
+    local oldKick
+    oldKick = hookmetamethod(localPlayer, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if method == "Kick" then
+            warn("[ECLIPSE] Blocked direct Kick")
+            return
+        end
+        return oldKick(self, ...)
     end)
 
     local oldIndex
@@ -1430,7 +1444,19 @@ local function setFarmEnabled(enabled)
                 img.Parent = sGui
             end
 
-            root.CFrame = _startCF
+            -- Gradual teleport: move in steps to avoid anti-cheat detection
+            local currentCF = root.CFrame
+            local targetCF = _startCF
+            local steps = 8
+            for step = 1, steps do
+                if not root or not root.Parent then break end
+                local alpha = step / steps
+                root.CFrame = currentCF:Lerp(targetCF, alpha)
+                task.wait(0.03)
+            end
+            if root and root.Parent then
+                root.CFrame = targetCF
+            end
             root.Velocity = Vector3.new(0, 0, 0)
             _startHolding = true
             _holdId = _holdId + 1
@@ -1486,6 +1512,15 @@ local function serverHop()
     task.spawn(function()
         task.wait(0.3)
         uiLog("[HOP] Arming queue...", "action")
+        -- Queue script to auto-execute after teleport
+        pcall(function()
+            if type(queue_on_teleport) == "function" then
+                queue_on_teleport("loadstring(game:HttpGet(\"https://raw.githubusercontent.com/loperer1/Eclipse-AutoExecute/refs/heads/main/autoexecute.lua\"))()")
+                uiLog("[HOP] Queue armed.", "action")
+            else
+                uiLog("[HOP] queue_on_teleport not available.", "warning")
+            end
+        end)
         uiLog("[HOP] Preparing to teleport...", "action")
         teleportCount += 1
         _isHopping = true
