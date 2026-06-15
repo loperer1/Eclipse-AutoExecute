@@ -3778,7 +3778,7 @@ task.spawn(function()
     while _autofarmRunning do
         if _autofarmEnabled and WEBHOOK_ENABLED and WEBHOOK_URL ~= "" then 
             task.spawn(sendWebhook) 
-        end
+        endф
         task.wait(SEND_INTERVAL)
     end
 end)
