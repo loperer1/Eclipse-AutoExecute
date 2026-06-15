@@ -21,7 +21,7 @@ if not game:IsLoaded() then
 end
 
 -- Singleton Enforcement: Prevents the script from executing multiple times 
--- (e.g., when autoexec and queue_on_teleport both fire on a server hop).
+-- (e.g., when the script fires multiple times on a server hop).
 local executionId = tick()
 getgenv()._eclipse2_execution_id = executionId
 task.wait(0.5) -- Debounce window to catch simultaneous loads
@@ -116,15 +116,6 @@ end
 resetCamera()
 
 
--- Show any error from the last queue_on_teleport attempt (set by QUEUE_CODE on failure)
-local _qErr = getgenv()._eclipse_run_err
-if _qErr then
-    getgenv()._eclipse_run_err = nil
-    task.spawn(function()
-        task.wait(2)  -- wait for UI to exist
-        uiLog("Queue error: " .. _qErr, "error")
-    end)
-end
 
 local _autofarmEnabled = false
 
@@ -261,7 +252,6 @@ local function loadSettings()
                 deathsCount = data.deaths or 0
                 teleportCount = data.hops or 0
                 
-                _pendingAutoEnable = true
                 _isHopping = false
                 -- Immediately save to clear the hopping flag
                 task.spawn(saveSettings) 
@@ -296,46 +286,6 @@ local VEHICLE_NAME  = "91TERRITORY-SCOUT" -- User's primary vehicle
 local PROBE_TARGET  = 4                   -- Total probes to maintain at all times
 local START_POS     = Vector3.new(-25904.4, 2.5, -25592.4)  -- Safe staging position (Under Map)
 
--- â”€â”€ ðŸŒ€ Auto-Execute via queue_on_teleport ðŸŒ€
-local _queueFunc = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
-
-local CACHE_FILE = "Eclipse/cache.lua"
-
--- â”€â”€ Persistence & Auto-Execute â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-local GITHUB_RAW = "https://raw.githubusercontent.com/Eddy23421/Eclipse-AutoExecute/refs/heads/main/autoexecute.lua"
-local LOADER_NAME = "EclipseAutoExecute.lua"
-
--- Ensure persistent loader is in autoexec folder
-pcall(function()
-    if writefile and isfolder then
-        if not isfolder("Eclipse") then makefolder("Eclipse") end
-        if isfolder("autoexec") or pcall(makefolder, "autoexec") then
-            local loaderCode = string.format('loadstring(game:HttpGet("%s"))()', GITHUB_RAW)
-            writefile("autoexec/" .. LOADER_NAME, loaderCode)
-        end
-    end
-end)
-
-local QUEUE_CODE = string.format([[
-    getgenv().auto_enable2_farm = true
-    loadstring(game:HttpGet("%s"))()
-]], GITHUB_RAW)
-
-local _hasQueued = false
-local function doQueue()
-    if _hasQueued then return end
-    if type(_queueFunc) == "function" then
-        pcall(function() _queueFunc(QUEUE_CODE) end)
-        _hasQueued = true
-    end
-end
-
--- Queue immediately at load so executor has it ready for the next teleport
-doQueue()
-
--- Auto-enable flag: set by QUEUE_CODE when the script loads on the new server
-local _pendingAutoEnable = getgenv().auto_enable2_farm == true
-if _pendingAutoEnable then getgenv().auto_enable2_farm = false end
 
 -- Fullbright & No Fog Automation (Elite Version)
 local brightLoop
@@ -538,13 +488,6 @@ end
 
 CloseWarn.MouseButton1Click:Connect(closeWarning)
 
--- Auto-bypass warning screen if resuming from a server hop
-if _pendingAutoEnable then
-    task.spawn(function()
-        task.wait(1)
-        closeWarning()
-    end)
-end
 -- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 -- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -597,7 +540,7 @@ local function uiLog(msg, t, rateLimit)
     table.insert(_logQueue, {msg = safeMsg, t = t or "default"})
 end
 
--- Drain log queue at 10 Hz (Heartbeat at 60 fps multiplies LuaArmor VM cost ~6x unnecessarily)
+-- Drain log queue at 10 Hz (Heartbeat at 60 fps is unnecessarily expensive)
 task.spawn(function()
     while true do
         task.wait(0.1)
@@ -1541,7 +1484,7 @@ local function serverHop()
     task.spawn(function()
         task.wait(0.3)
         uiLog("[HOP] Arming queue...", "action")
-        doQueue()
+        uiLog("[HOP] Preparing to teleport...", "action")
         teleportCount += 1
         _isHopping = true
         saveSettings()
@@ -1620,64 +1563,6 @@ end
 game:GetService("Players").PlayerAdded:Connect(checkPlayerForStaff)
 -- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
--- Deferred auto-enable: fires after UI is ready, only on server hop re-entry
-if _pendingAutoEnable then
-    task.spawn(function()
-        -- Hard delay: give the game 8 seconds before doing anything
-        task.wait(8)
-
-        -- 1. Wait for character + HumanoidRootPart to exist
-        local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
-        char:WaitForChild("HumanoidRootPart", 60)
-
-        -- 2. Force Roblox to stream the staging area chunks to prevent the grey void
-        pcall(function()
-            localPlayer:RequestStreamAroundAsync(START_POS)
-        end)
-
-        -- 3. Wait for core map folders
-        workspace:WaitForChild("map_related", 60)
-        workspace:WaitForChild("player_related", 60)
-
-        -- 4. Poll for actual in-game readiness â€” the loading screen hides while these populate.
-        local readyTimeout = tick()
-        uiLog("Waiting for game world to fully load...", "action")
-        repeat
-            task.wait(1)
-            local playerData = workspace:FindFirstChild("player_related")
-            local stats = playerData and playerData:FindFirstChild("stats")
-            
-            -- Check that the player has spawned with full health (not mid-respawn)
-            local hum = char:FindFirstChild("Humanoid")
-            local isFullySpawned = hum and hum.Health > 0 and hum.MaxHealth > 0
-            
-            -- We just need character readiness and basic data; don't wait for storms
-            -- because the server might not have any yet!
-            if stats and isFullySpawned then break end
-        until tick() - readyTimeout > 60
-
-        -- 5. One final buffer for physics + rendering to settle
-        task.wait(3)
-        setFarmEnabled(true)
-        -- Redundant log removed: setFarmEnabled already prints that it's starting.
-    end)
-elseif type(_queueFunc) == "function" then
-    task.spawn(function()
-        task.wait(1.5)
-        local hasRun = type(getgenv().eclipse_af2_run) == "function"
-        local hasSrc = getgenv().eclipse_af2_src ~= nil
-        if hasRun or _cacheOk or hasSrc then
-            local methods = {}
-            if hasRun       then table.insert(methods, "function") end
-            if _autoexecOk  then table.insert(methods, "autoexec") end
-            if _cacheOk     then table.insert(methods, "file") end
-            if hasSrc       then table.insert(methods, "src") end
-            uiLog("Auto-exec ready: " .. table.concat(methods, "+"), "success")
-        else
-            uiLog("Auto-exec: queue found but no source â€” hop may not re-execute", "warning")
-        end
-    end)
-end
 
 
 
@@ -3898,9 +3783,6 @@ task.spawn(function()
     end
 end)
 
--- Store this function in getgenv so queue_on_teleport can call it on the next server.
--- It's a compiled function (bytecode), not readable source text.
-getgenv().eclipse_af2_run = eclipse_main
 
 end -- close eclipse_main
 
