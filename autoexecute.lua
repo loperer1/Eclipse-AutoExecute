@@ -47,14 +47,15 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 if not getgenv()._eclipse2_hooked then
     getgenv()._eclipse2_hooked = true
 
-    for _, script in pairs(localPlayer.PlayerScripts:GetDescendants()) do
-        if script:IsA("LocalScript") and (script.Name:match("\n") or script.Name:match("\a")) then
-            script:Destroy()
-        end
-    end
+    -- Removed: destroying PlayerScripts LocalScripts (was triggering 227/267 kicks)
+    -- for _, script in pairs(localPlayer.PlayerScripts:GetDescendants()) do
+    --     if script:IsA("LocalScript") and (script.Name:match("\n") or script.Name:match("\a")) then
+    --         script:Destroy()
+    --     end
+    -- end
 
-    local _hEvents = ReplicatedStorage:WaitForChild("events", 5)
-    local _hCS     = _hEvents and _hEvents:FindFirstChild("ClientSignal")
+    -- Removed: ClientSignal FireServer block (was triggering 227/267 kicks)
+    -- The game uses ClientSignal for heartbeat/validation; blocking it = instant kick
 
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
@@ -65,7 +66,7 @@ if not getgenv()._eclipse2_hooked then
                 return
             end
         elseif method == "FireServer" then
-            if _hCS and self == _hCS then return end
+            -- Removed: ClientSignal block was causing 227/267 kicks
         end
         return oldNamecall(self, ...)
     end)
@@ -84,7 +85,7 @@ if not getgenv()._eclipse2_hooked then
     local oldIndex
     oldIndex = hookmetamethod(game, "__index", function(self, key)
         if key == "WalkSpeed" or key == "Health" or key == "JumpHeight" then
-            if not checkcaller() and self:IsA("Humanoid") and self:IsDescendantOf(localPlayer.Character or workspace) then
+            if not checkcaller() and self:IsA("Humanoid") and localPlayer.Character and self:IsDescendantOf(localPlayer.Character) then
                 local real = oldIndex(self, key)
                 if key == "WalkSpeed" and real >= 30 then return 16 end
                 if key == "Health" and real > 100 then return 100 end
@@ -187,10 +188,8 @@ local _holdId = 0            -- increment to kill any stale hold loops
 local _startCF = nil
 local activeConnections = {}
 
--- Webhook configuration & Persistence
+-- Settings persistence
 local SETTINGS_FILE = "Eclipse/autofarm2_settings.json"
-local WEBHOOK_URL = getgenv().eclipse2_webhook or ""
-local WEBHOOK_ENABLED = getgenv().eclipse2_webhook_enabled or false
 
 local probesPlaced      = 0
 local probesRecovered   = 0
@@ -198,7 +197,7 @@ local probesDestroyed   = 0
 local stormsTargeted    = 0
 local deathsCount       = 0
 local teleportCount     = 0
-local SEND_INTERVAL     = 60   -- Webhook sends every 60 seconds
+
 local _lastPlacementTime = 0  -- prevents pickup immediately after placement
 
 
@@ -243,7 +242,6 @@ local function saveSettings()
         probesDestroyed = probesDestroyed,
         deaths = deathsCount,
         hops = teleportCount,
-        webhookUrl = WEBHOOK_URL,
         autoHop = _autoHopEnabled,
         isHopping = _isHopping
     }
@@ -285,7 +283,6 @@ local function loadSettings()
             end
             
             -- These configuration settings persist regardless of session
-            WEBHOOK_URL = data.webhookUrl or ""
             _autoHopEnabled = false -- Temporarily disabled: data.autoHop or false
             
             getgenv().eclipse2_session_time = sessionTimeAccumulated
@@ -334,7 +331,7 @@ if CoreGui:FindFirstChild("TornadoAutofarmUI2") then CoreGui.TornadoAutofarmUI2:
 local UI = Instance.new("ScreenGui"); UI.Name = "TornadoAutofarmUI2"; UI.Parent = CoreGui; UI.ResetOnSpawn = false
 
 -- Pre-declare UI variables for scope
-local MainFrame, ShowBtn, buildAndSend, ConsoleFrame -- Added ConsoleFrame
+local MainFrame, ShowBtn, ConsoleFrame -- Added ConsoleFrame
 
 -- â”€â”€ STARTUP WARNING UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 local WarnFrame = Instance.new("Frame")
@@ -480,26 +477,6 @@ local function closeWarning()
         end
     end
 
-    -- Send Session Start Webhook if enabled (now triggered by User clicking Okay or auto-hop)
-    if WEBHOOK_ENABLED and WEBHOOK_URL ~= "" then
-        task.spawn(function()
-            local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-            if requestFunc then
-                pcall(function()
-                    requestFunc({
-                        Url = WEBHOOK_URL,
-                        Method = "POST",
-                        Headers = {["Content-Type"] = "application/json"},
-                        Body = HttpService:JSONEncode({
-                            username = "Eclipse Autofarm",
-                            avatar_url = "https://i.postimg.cc/SxtVbHhh/8429be3ee09690842c1563546762df75.png",
-                            content = "This is just to test your webhook works. Also keep in mind as this script is in beta so graphs, and data could be weird so just be aware."
-                        })
-                    })
-                end)
-            end
-        end)
-    end
 end
 
 CloseWarn.MouseButton1Click:Connect(closeWarning)
@@ -1186,93 +1163,7 @@ local ConsoleLayout = Instance.new("UIListLayout"); ConsoleLayout.Parent = Conso
 ConsoleLayout.SortOrder = Enum.SortOrder.LayoutOrder; ConsoleLayout.Padding = UDim.new(0,2)
 local pad = Instance.new("UIPadding"); pad.PaddingLeft = UDim.new(0,8); pad.PaddingTop = UDim.new(0,8); pad.Parent = ConsoleFrame
 
--- Webhook Config Box
-local WebhookFrame = Instance.new("Frame")
-WebhookFrame.Size = UDim2.new(1, -20, 0, 36)
-WebhookFrame.Position = UDim2.new(0, 10, 1, -44)
-WebhookFrame.BackgroundColor3 = Color3.fromRGB(4, 4, 4)
-WebhookFrame.BorderSizePixel = 0
-WebhookFrame.ClipsDescendants = true -- Cuts off any overflowing text
-WebhookFrame.Parent = MainFrame
-Instance.new("UICorner", WebhookFrame).CornerRadius = UDim.new(0, 2)
-local WebStroke = Instance.new("UIStroke")
-WebStroke.Color = Color3.fromRGB(255, 255, 255); WebStroke.Thickness = 1; WebStroke.Transparency = 0.95; WebStroke.Parent = WebhookFrame
-
-local WebTitle = Instance.new("TextLabel")
-WebTitle.Size = UDim2.new(0, 50, 1, 0)
-WebTitle.Position = UDim2.new(0, 8, 0, 0)
-WebTitle.BackgroundTransparency = 1
-WebTitle.Text = "URL:"
-WebTitle.Font = Enum.Font.GothamBold
-WebTitle.TextSize = 9
-WebTitle.TextColor3 = Color3.fromRGB(150, 150, 150)
-WebTitle.TextXAlignment = Enum.TextXAlignment.Left
-WebTitle.Parent = WebhookFrame
-
-local WebInput = Instance.new("TextBox")
-WebInput.Size = UDim2.new(1, -110, 1, -10)
-WebInput.Position = UDim2.new(0, 60, 0, 5)
-WebInput.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
-WebInput.BorderSizePixel = 0
-local initialUrl = tostring(WEBHOOK_URL or ""):sub(1, 1000)
-WebInput.Text = initialUrl
-WebInput.PlaceholderText = "Paste URL here..."
-WebInput.ClearTextOnFocus = false
-WebInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-WebInput.TextSize = 10
-WebInput.Font = Enum.Font.Code
-WebInput.TextXAlignment = Enum.TextXAlignment.Left
-WebInput.TextWrapped = false -- Prevents text from wrapping to next line
-WebInput.Parent = WebhookFrame
-Instance.new("UICorner", WebInput).CornerRadius = UDim.new(0, 2)
-
-local WebToggle = Instance.new("TextButton")
-WebToggle.Size = UDim2.new(0, 40, 1, -10)
-WebToggle.Position = UDim2.new(1, -45, 0, 5)
-WebToggle.BackgroundColor3 = WEBHOOK_ENABLED and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(25, 25, 25)
-WebToggle.Text = WEBHOOK_ENABLED and "ON" or "OFF"
-WebToggle.TextColor3 = WEBHOOK_ENABLED and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(150, 150, 150)
-WebToggle.Font = Enum.Font.GothamBold
-WebToggle.TextSize = 9
-WebToggle.Parent = WebhookFrame
-Instance.new("UICorner", WebToggle).CornerRadius = UDim.new(0, 2)
-
-WebToggle.MouseButton1Click:Connect(function()
-    WEBHOOK_ENABLED = not WEBHOOK_ENABLED
-    WebToggle.Text = WEBHOOK_ENABLED and "ON" or "OFF"
-    WebToggle.BackgroundColor3 = WEBHOOK_ENABLED and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(25, 25, 25)
-    WebToggle.TextColor3 = WEBHOOK_ENABLED and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(150, 150, 150)
-    getgenv().eclipse2_webhook_enabled = WEBHOOK_ENABLED
-    saveSettings()
-    uiLog("Webhook notifications " .. (WEBHOOK_ENABLED and "ENABLED" or "DISABLED"), "action")
-    
-    if WEBHOOK_ENABLED and WEBHOOK_URL ~= "" then
-        task.spawn(function()
-            local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-            if requestFunc then
-                pcall(function()
-                    requestFunc({
-                        Url = WEBHOOK_URL,
-                        Method = "POST",
-                        Headers = {["Content-Type"] = "application/json"},
-                        Body = HttpService:JSONEncode({
-                            username = "Eclipse Dashboard",
-                            avatar_url = "https://i.postimg.cc/SxtVbHhh/8429be3ee09690842c1563546762df75.png",
-                            content = "This is just to test your webhook works."
-                        })
-                    })
-                end)
-            end
-        end)
-    end
-end)
-
-WebInput.FocusLost:Connect(function()
-    WEBHOOK_URL = WebInput.Text
-    getgenv().eclipse2_webhook = WEBHOOK_URL
-    saveSettings()
-    uiLog("Webhook URL updated", "success")
-end)
+-- Webhook Config Box removed to prevent 227/267 kicks
 
 -- Universal Clamped Draggable Function
 local function makeDraggable(obj, threshold)
@@ -3505,9 +3396,8 @@ task.spawn(function()
 end)
 
 -- ============================================================
---  DISCORD WEBHOOK SESSION TRACKER
+--  SESSION TRACKER (webhook code removed to prevent 227/267 kicks)
 -- ============================================================
--- WEBHOOK_URL and SEND_INTERVAL already declared at top of eclipse_main
 
 if not sessionMoneyStart then
     sessionMoneyStart = getgenv().eclipse2_session_money
@@ -3544,7 +3434,7 @@ local function getPlayerMoney()
     return nil
 end
 
--- Stats bar updater â€” now placed after formatTime/formatMoney/getPlayerMoney are in scope
+-- Stats bar updater
 task.spawn(function()
     while _autofarmRunning do
         task.wait(2)
@@ -3559,212 +3449,19 @@ task.spawn(function()
 end)
 
 local function buildChartUrl()
-    if #moneyHistory < 2 then return nil end
-    local labels, data = {}, {}
-    local startIdx = math.max(1, #moneyHistory - 20)
-    for i = startIdx, #moneyHistory do
-        local pt = moneyHistory[i]
-        table.insert(labels, "'"..formatTime(pt.elapsed).."'")
-        table.insert(data, tostring(math.floor(pt.earned)))
-    end
-    
-    -- Pad data so short sessions don't flood the fill area
-    local paddedData = {}
-    local minVal = math.huge; local maxVal = -math.huge
-    for _, v in ipairs(data) do
-        local n = tonumber(v) or 0
-        if n < minVal then minVal = n end
-        if n > maxVal then maxVal = n end
-        table.insert(paddedData, n)
-    end
-    -- Ensure y-axis has meaningful range so fill doesn't flood on flat data
-    local yMin = 0
-    local yMax = math.max(maxVal * 1.25, 100)
-
-    local cfg = {
-        type = "line",
-        data = {
-            labels = labels,
-            datasets = {
-                {
-                    label = "Earnings",
-                    data = paddedData,
-                    fill = true,
-                    backgroundColor = "rgba(46, 213, 115, 0.15)",
-                    borderColor = "#2ed573",
-                    borderWidth = 2,
-                    pointRadius = 0,
-                    pointHoverRadius = 0,
-                    tension = 0.4
-                }
-            }
-        },
-        options = {
-            animation = { duration = 0 },
-            plugins = {
-                legend = { display = false },
-                title = {
-                    display = true,
-                    text = "EARNING GRAPH",
-                    color = "#ffffff",
-                    font = { size = 14, family = "monospace", weight = "bold" },
-                    padding = { top = 8, bottom = 4 }
-                }
-            },
-            scales = {
-                x = {
-                    ticks = { color = "#444", font = { size = 7 }, maxRotation = 0 },
-                    grid = { color = "rgba(255,255,255,0.04)" }
-                },
-                y = {
-                    min = yMin,
-                    max = yMax,
-                    ticks = { color = "#444", font = { size = 7 } },
-                    grid = { color = "rgba(255,255,255,0.04)" }
-                }
-            },
-            layout = { padding = { left = 6, right = 14, top = 2, bottom = 4 } }
-        }
-    }
-
-    local ok, json = pcall(function() return HttpService:JSONEncode(cfg) end)
-    if not ok then return nil end
-    return "https://quickchart.io/chart?w=820&h=370&bkg=%230a0a0a&v=3&c="..HttpService:UrlEncode(json)
+    -- Chart URL generation removed (was used for webhook only)
+    return nil
 end
 
--- Robust Request Handler
-local function safeRequest(options, retryCount)
-    local retryCount = retryCount or 0
-    local requestFunc = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-    if not requestFunc then
-        uiLog("Webhook error: No request function.", "error")
-        return false
-    end
-    
-    local success, response = pcall(function()
-        return requestFunc(options)
-    end)
-    
-    if success and response then
-        local code = response.StatusCode or response.status or 0
-        if code >= 200 and code < 300 then
-            return true
-        elseif code == 429 and retryCount < 1 then
-            uiLog("Webhook rate limited. Retrying.", "warning")
-            task.wait(5)
-            return safeRequest(options, retryCount + 1)
-        else
-            uiLog("Webhook HTTP error: " .. tostring(code), "error")
-        end
-    else
-        uiLog("Webhook network error.", "error")
-    end
+buildAndSend = function()
+    -- Webhook send function removed to prevent 227/267 kicks
     return false
 end
 
-buildAndSend = function(extraFields, titleOverride, colorOverride, isRetry) -- Assigned to outer scope
-    local elapsed = getActiveSessionTime()
-    local currentMoney = getPlayerMoney()
-    if sessionMoneyStart == nil and currentMoney then sessionMoneyStart = currentMoney end
-    local earned = (currentMoney and sessionMoneyStart) and math.max(0, currentMoney - sessionMoneyStart) or 0
-    local perHour = elapsed > 120 and math.floor(earned / (elapsed / 3600)) or 0
-
-    local chartUrl = buildChartUrl()
-    
-    -- Layout matching 'remake it look like this'
-    local fields = {
-        {
-            name = "**SESSION**",
-            value = ("Time: %s\nStatus: %s\nSnapshots: %d"):format(formatTime(elapsed), _autofarmEnabled and "Running" or "Paused", #moneyHistory),
-            inline = true
-        },
-        {
-            name = "**EARNINGS**",
-            value = ("Total: %s\nHourly: %s"):format(formatMoney(earned), formatMoney(perHour)),
-            inline = true
-        },
-        {
-            name = "**ACTIVITY**",
-            value = ("Placed: %d\nRecovered: %d"):format(probesPlaced, probesRecovered),
-            inline = true
-        },
-        {
-            name = "**ENVIRONMENT**",
-            value = ("Storms: %d\nLocation: %s"):format(#getTornadoes(), tostring(game.PlaceId)),
-            inline = true
-        },
-        {
-            name = "**PLAYER**",
-            value = localPlayer.Name,
-            inline = true
-        }
-    }
-    
-    if extraFields and type(extraFields) == "table" then
-        for _, f in ipairs(extraFields) do
-            if type(f) == "table" then 
-                -- Map custom fields to the same bold style
-                if f.name then f.name = "**" .. f.name:upper() .. "**" end
-                table.insert(fields, f) 
-            end
-        end
-    end
-
-    local embed = {
-        title = tostring(titleOverride or "Eclipse Autofarm Dashboard"),
-        description = "Session Activity Report",
-        color = tonumber(colorOverride) or 0,
-        fields = fields,
-        footer = {
-            text = "Eclipse | " .. os.date("%X") .. " â€¢ Today at " .. os.date("%H:%M %p"),
-        },
-    }
-    
-    local ok_ts, ts = pcall(function() return os.date("!%Y-%m-%dT%H:%M:%SZ") end)
-    if ok_ts then embed.timestamp = ts end
-    if chartUrl then embed.image = {url = tostring(chartUrl)} end
-
-    local payload = HttpService:JSONEncode({
-        username = "Eclipse Autofarm",
-        avatar_url = "https://i.postimg.cc/SxtVbHhh/8429be3ee09690842c1563546762df75.png",
-        embeds = {embed}
-    })
-
-    return safeRequest({
-        Url = WEBHOOK_URL, 
-        Method = "POST", 
-        Headers = {["Content-Type"] = "application/json"}, 
-        Body = payload
-    })
-end
-
 local function sendWebhook()
-    local success = buildAndSend(nil, nil, nil, false)
-    if success then
-        local currentMoney = getPlayerMoney()
-        local earned = (currentMoney and sessionMoneyStart) and math.max(0, currentMoney - sessionMoneyStart) or 0
-        uiLog("Webhook sent.", "success")
-    end
+    -- Webhook disabled to prevent 227/267 kicks
+    return
 end
-
--- Disconnect webhook
-game:GetService("Players").PlayerRemoving:Connect(function(plr)
-    if plr ~= localPlayer then return end
-    local reason = "Left game"
-    pcall(function()
-        local state = game:GetService("TeleportService"):GetLocalPlayerTeleportData()
-        if state then reason = "Teleport / Server Hop" end
-    end)
-    pcall(function()
-        local kr = localPlayer:FindFirstChild("kick_reason")
-        if kr then reason = "Kicked: "..(kr.Value or "no reason") end
-    end)
-    buildAndSend(
-        {{name = "DISCONNECT REASON", value = "**" .. reason .. "**", inline = false}},
-        "ECLIPSE DASHBOARD",
-        15158332
-    )
-end)
 
 -- Retry until money is readable, but DO NOT overwrite if we already have a session baseline from a server hop
 task.spawn(function()
@@ -3787,8 +3484,7 @@ task.spawn(function()
     end
 end)
 
--- History sampler: runs every 15s so the graph always has fresh data points
--- independent of how often the webhook fires
+-- History sampler: runs every 15s so the stats bar always has fresh data points
 task.spawn(function()
     task.wait(10)
     while _autofarmRunning do
@@ -3803,20 +3499,8 @@ task.spawn(function()
             if #moneyHistory > 60 then table.remove(moneyHistory, 1) end
             getgenv().eclipse2_money_history = moneyHistory
             getgenv().eclipse2_session_money = sessionMoneyStart
-            -- saveSettings() removed: now only saves during server hops as requested
         end
         task.wait(15)
-    end
-end)
-
--- Periodic webhook sends
-task.spawn(function()
-    task.wait(SEND_INTERVAL)
-    while _autofarmRunning do
-        if _autofarmEnabled and WEBHOOK_ENABLED and WEBHOOK_URL ~= "" then 
-            task.spawn(sendWebhook) 
-        end
-        task.wait(SEND_INTERVAL)
     end
 end)
 
